@@ -555,18 +555,21 @@ function addOutput() {
   if (!name) { toast('⚠️ Isi nama tampilan channel dulu', 'warn'); return; }
   if (!selected.size) { toast('⚠️ Pilih minimal satu channel sumber', 'warn'); return; }
 
+  const srcCount = selected.size;
   outputList.push({ id: ++outIdSeq, custom_name: name, custom_group: group, source_idx: [...selected] });
   document.getElementById('in-name').value = '';
+  // Sengaja TIDAK hapus in-group supaya user bisa tambah channel banyak di grup yang sama
   selected.clear();
   renderLeft();
   renderRight();
   updateStats();
-  toast(`✅ "${name}" ditambahkan (${outputList[outputList.length-1].source_idx.length} stream)`, 'ok');
+  toast(`✅ "${name}" ditambahkan (${srcCount} stream)`, 'ok');
 }
 
 function removeOutput(id) {
   const item = outputList.find(o => o.id === id);
   outputList = outputList.filter(o => o.id !== id);
+  expandedIds.delete(id);
   renderRight(); updateStats();
   if (item) toast(`🗑 "${item.custom_name}" dihapus`, 'warn');
 }
@@ -579,14 +582,19 @@ function removeSrcFromOutput(outId, srcIdx) {
   else { renderRight(); updateStats(); }
 }
 
+// Track which output items are expanded
+const expandedIds = new Set();
+
 function toggleSources(id) {
-  const el = document.getElementById(`src-${id}`);
-  el && el.classList.toggle('open');
+  if (expandedIds.has(id)) expandedIds.delete(id);
+  else expandedIds.add(id);
+  renderRight();
 }
 
 function clearOutput() {
   if (!outputList.length) return;
-  outputList = []; renderRight(); updateStats(); toast('🗑 Semua output dihapus', 'warn');
+  outputList = []; expandedIds.clear(); renderRight(); updateStats();
+  toast('🗑 Semua output dihapus', 'warn');
 }
 
 function renderRight() {
@@ -594,40 +602,75 @@ function renderRight() {
   const empty = document.getElementById('out-empty');
   document.getElementById('badge-out').textContent = outputList.length;
 
+  // Hapus semua child kecuali #out-empty
+  Array.from(container.children).forEach(el => {
+    if (el.id !== 'out-empty') el.remove();
+  });
+
   if (!outputList.length) {
     empty.style.display = 'flex';
-    container.innerHTML = '';
-    container.appendChild(empty);
     return;
   }
   empty.style.display = 'none';
 
   const byIdx = Object.fromEntries(channels.map(c => [c.idx, c]));
 
-  container.innerHTML = outputList.map((item, i) => {
-    const chips = item.source_idx.map(s => {
+  outputList.forEach((item, i) => {
+    const isOpen = expandedIds.has(item.id);
+
+    // Buat wrapper
+    const div = document.createElement('div');
+    div.className = 'out-item';
+
+    // Header
+    const head = document.createElement('div');
+    head.className = 'out-head';
+    head.onclick = () => toggleSources(item.id);
+
+    const num = document.createElement('div');
+    num.className = 'out-num';
+    num.textContent = i + 1;
+
+    const info = document.createElement('div');
+    info.className = 'out-info';
+    info.innerHTML = `
+      <div class="out-name">${esc(item.custom_name)}</div>
+      <div class="out-sub">
+        <span class="ch-tag group">${esc(item.custom_group)}</span>
+        <span class="stream-badge">${item.source_idx.length} stream</span>
+        <span style="color:var(--muted);font-size:.7rem">${isOpen ? '▴ sembunyikan' : '▾ lihat sumber'}</span>
+      </div>`;
+
+    // Tombol hapus — event terpisah supaya tidak konflik
+    const btnDel = document.createElement('button');
+    btnDel.className = 'btn-del-out';
+    btnDel.title = 'Hapus channel ini';
+    btnDel.textContent = '✕';
+    btnDel.onclick = (e) => { e.stopPropagation(); removeOutput(item.id); };
+
+    head.appendChild(num);
+    head.appendChild(info);
+    head.appendChild(btnDel);
+
+    // Sumber chips
+    const srcDiv = document.createElement('div');
+    srcDiv.className = 'out-sources' + (isOpen ? ' open' : '');
+
+    item.source_idx.forEach(s => {
       const c = byIdx[s];
-      const q = c?.quality ? `<span class="ch-tag ${c.quality}" style="margin-right:2px">${c.quality.toUpperCase()}</span>` : '';
-      return `<span class="src-chip" onclick="removeSrcFromOutput(${item.id},${s})" title="Hapus sumber ini">
-        ${q}${esc(c?.name || '?')} <span class="x">✕</span>
-      </span>`;
-    }).join('');
-    return `<div class="out-item">
-      <div class="out-head" onclick="toggleSources(${item.id})">
-        <div class="out-num">${i+1}</div>
-        <div class="out-info">
-          <div class="out-name">${esc(item.custom_name)}</div>
-          <div class="out-sub">
-            <span class="ch-tag group">${esc(item.custom_group)}</span>
-            <span class="stream-badge">${item.source_idx.length} stream</span>
-            <span style="color:var(--muted);font-size:.7rem">▾ lihat sumber</span>
-          </div>
-        </div>
-        <button class="btn-del-out" onclick="event.stopPropagation();removeOutput(${item.id})" title="Hapus">✕</button>
-      </div>
-      <div class="out-sources" id="src-${item.id}">${chips}</div>
-    </div>`;
-  }).join('');
+      const chip = document.createElement('span');
+      chip.className = 'src-chip';
+      chip.title = 'Klik untuk hapus sumber ini';
+      chip.innerHTML = (c?.quality ? `<span class="ch-tag ${c.quality}">${c.quality.toUpperCase()}</span> ` : '')
+        + esc(c?.name || '?') + ' <span class="x">✕</span>';
+      chip.onclick = () => removeSrcFromOutput(item.id, s);
+      srcDiv.appendChild(chip);
+    });
+
+    div.appendChild(head);
+    div.appendChild(srcDiv);
+    container.appendChild(div);
+  });
 }
 
 // ── EXPORT ────────────────────────────────────────────────────────────────
