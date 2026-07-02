@@ -695,6 +695,15 @@ function renderRight() {
 }
 
 // ── EXPORT ────────────────────────────────────────────────────────
+//
+// Struktur M3U yang BENAR untuk OTT Navigator:
+//   group-title = nama folder/grup (misal "Fashion TV" atau "Hiburan")
+//   tvg-name    = nama ASLI channel sumber (misal "Fashion TV SD", "HBO")
+//   nama setelah koma = nama ASLI channel sumber (yang tampil di layar)
+//
+// Dengan begitu OTT Navigator mengelompokkan channel berdasarkan group-title,
+// tapi tiap entry tetap punya nama & logo masing-masing.
+//
 function doExport() {
   if (!outputList.length) { toast('⚠️ Daftar output masih kosong', 'warn'); return; }
   const byIdx = Object.fromEntries(channels.map(c => [c.idx, c]));
@@ -702,7 +711,15 @@ function doExport() {
   for (const item of outputList) {
     for (const s of item.source_idx) {
       const c = byIdx[s]; if (!c) continue;
-      lines.push(`#EXTINF:-1 tvg-id="${c.tvg_id}" tvg-name="${item.custom_name}" tvg-logo="${c.logo}" group-title="${item.custom_group}",${item.custom_name}`);
+      // group-title  → nama folder yang dibuat user (item.custom_group dipakai sebagai kategori,
+      //                 sedangkan item.custom_name dipakai sebagai sub-group agar OTT Navigator
+      //                 bisa mengelompokkan, tergantung settingan player)
+      // tvg-name     → nama ASLI channel sumber (c.name) bukan nama folder
+      // nama setelah koma → nama ASLI channel sumber (c.name)
+      // logo         → logo ASLI channel sumber (c.logo)
+      lines.push(
+        `#EXTINF:-1 tvg-id="${c.tvg_id}" tvg-name="${c.name}" tvg-logo="${c.logo}" group-title="${item.custom_name}",${c.name}`
+      );
       lines.push(c.url);
     }
   }
