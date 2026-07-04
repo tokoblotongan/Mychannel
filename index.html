@@ -134,12 +134,39 @@ body{background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,san
 .ch-tag.used{color:var(--orange);background:#2a1f00;font-size:.6rem}
 
 /* SEL TOOLBAR */
-.sel-toolbar{padding:8px 16px;background:var(--surface);border-top:1px solid var(--border);display:flex;align-items:center;gap:8px;flex-shrink:0}
-.sel-count{color:var(--muted);font-size:.78rem;flex:1}
+.sel-toolbar{padding:8px 16px;background:var(--surface);border-top:1px solid var(--border);display:flex;align-items:center;gap:6px;flex-shrink:0;flex-wrap:wrap}
+.sel-count{color:var(--muted);font-size:.78rem;flex:1;min-width:80px}
 .sel-count strong{color:var(--text)}
 .btn-sel-all,.btn-sel-clear{background:none;border:1px solid var(--border);color:var(--muted);padding:4px 9px;border-radius:5px;cursor:pointer;font-size:.72rem}
 .btn-sel-all:hover{border-color:var(--accent);color:var(--accent)}
 .btn-sel-clear:hover{border-color:var(--red);color:var(--red)}
+.btn-del-sel{background:none;border:1px solid var(--border);color:var(--muted);padding:4px 9px;border-radius:5px;cursor:pointer;font-size:.72rem;display:none}
+.btn-del-sel:hover{border-color:var(--red);color:var(--red);background:rgba(248,81,73,.08)}
+.btn-del-sel.show{display:inline-flex;align-items:center;gap:4px}
+
+/* MODE DELETE TOGGLE */
+.btn-del-mode{background:none;border:1px solid var(--border);color:var(--muted);padding:3px 8px;border-radius:5px;cursor:pointer;font-size:.72rem;flex-shrink:0;transition:.15s}
+.btn-del-mode:hover{border-color:var(--red);color:var(--red)}
+.btn-del-mode.active{background:rgba(248,81,73,.15);border-color:var(--red);color:var(--red)}
+
+/* Tombol ✕ hapus per channel — muncul di mode delete */
+.ch-del-btn{
+  display:none;
+  background:none;border:none;color:var(--muted);cursor:pointer;
+  padding:2px 5px;border-radius:4px;font-size:.8rem;flex-shrink:0;
+  line-height:1;transition:.15s;
+}
+.delete-mode .ch-del-btn{display:flex;align-items:center}
+.delete-mode .ch-del-btn:hover{color:var(--red);background:rgba(248,81,73,.15)}
+/* Di mode delete, item yang sudah di-output tetap tidak bisa dihapus dari sini */
+.delete-mode .ch-item:not(.in-output):hover{border-color:rgba(248,81,73,.4)}
+/* Banner mode delete */
+.del-mode-banner{
+  display:none;padding:5px 16px;background:rgba(248,81,73,.1);
+  border-bottom:1px solid rgba(248,81,73,.3);flex-shrink:0;
+  font-size:.75rem;color:var(--red);align-items:center;gap:6px;
+}
+.del-mode-banner.show{display:flex}
 
 /* EMPTY */
 .empty{display:flex;flex-direction:column;align-items:center;justify-content:center;flex:1;padding:32px 16px;text-align:center;color:var(--muted)}
@@ -242,7 +269,13 @@ body{background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,san
   <div class="panel panel-l">
     <div class="panel-head">
       <h2>📂 Channel Sumber <span class="badge" id="badge-src">0</span></h2>
+      <button class="btn-del-mode" id="btn-del-mode" onclick="toggleDeleteMode()" title="Mode hapus channel sumber">🗑 Hapus Channel</button>
       <button class="btn-toggle-filter" id="btn-toggle" onclick="toggleFilter()">▲ Sembunyikan filter</button>
+    </div>
+
+    <!-- Banner peringatan mode delete -->
+    <div class="del-mode-banner" id="del-mode-banner">
+      🗑 <strong>Mode Hapus Aktif</strong> — klik ✕ pada channel untuk menghapus, atau pilih lalu klik "Hapus Dipilih". Channel yang sudah dimasukkan ke output tidak bisa dihapus.
     </div>
 
     <div class="upload-zone" id="upload-zone">
@@ -279,6 +312,7 @@ body{background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,san
       <span class="sel-count"><strong id="sel-count-num">0</strong> dipilih</span>
       <button class="btn-sel-all" onclick="selectAll()">Pilih semua</button>
       <button class="btn-sel-clear" onclick="clearSel()">Batal pilih</button>
+      <button class="btn-del-sel" id="btn-del-sel" onclick="deleteSelected()">🗑 Hapus Dipilih</button>
     </div>
   </div>
 
@@ -469,6 +503,7 @@ function renderLeft() {
   }
   // Render pakai DOM langsung agar event tidak hilang
   list.innerHTML = '';
+  list.classList.toggle('delete-mode', deleteMode);
   filtered.forEach(c => {
     const isUsed = usedIdxSet.has(c.idx);
     const isSel  = selected.has(c.idx);
@@ -504,12 +539,23 @@ function renderLeft() {
     }
     info.appendChild(nameEl);
     info.appendChild(meta);
+
+    // Tombol hapus per channel (hanya muncul di mode delete, tidak untuk yang sudah di-output)
+    const delBtn = document.createElement('button');
+    delBtn.className = 'ch-del-btn';
+    delBtn.title = isUsed ? 'Tidak bisa dihapus (sudah di output)' : 'Hapus channel ini';
+    delBtn.textContent = '✕';
+    delBtn.style.opacity = isUsed ? '0.3' : '1';
+    delBtn.onclick = isUsed ? null : (e) => { e.stopPropagation(); deleteChannel(c.idx); };
+
     div.appendChild(check);
     div.appendChild(info);
+    div.appendChild(delBtn);
     list.appendChild(div);
   });
   document.getElementById('sel-count-num').textContent = selected.size;
   updateAddBtn();
+  updateDelSelBtn();
 }
 
 function toggleSel(idx) {
@@ -528,6 +574,66 @@ function selectAll() {
   renderLeft();
 }
 function clearSel() { selected.clear(); renderLeft(); }
+
+// ── DELETE MODE & HAPUS CHANNEL SUMBER ───────────────────────────
+let deleteMode = false;
+
+function toggleDeleteMode() {
+  deleteMode = !deleteMode;
+  const btn    = document.getElementById('btn-del-mode');
+  const banner = document.getElementById('del-mode-banner');
+  const list   = document.getElementById('channel-list');
+  btn.classList.toggle('active', deleteMode);
+  btn.textContent = deleteMode ? '✅ Selesai Hapus' : '🗑 Hapus Channel';
+  banner.classList.toggle('show', deleteMode);
+  list.classList.toggle('delete-mode', deleteMode);
+  // Di mode delete, pilih = hapus, bukan centang output
+  // Tombol "Hapus Dipilih" muncul hanya saat mode delete aktif dan ada yang dipilih
+  updateDelSelBtn();
+}
+
+function updateDelSelBtn() {
+  const btn = document.getElementById('btn-del-sel');
+  if (!btn) return;
+  const show = deleteMode && selected.size > 0;
+  btn.classList.toggle('show', show);
+  if (show) btn.textContent = `🗑 Hapus ${selected.size} Channel`;
+}
+
+function deleteChannel(idx) {
+  // Tidak boleh hapus yang sudah masuk output
+  if (usedIdxSet.has(idx)) {
+    toast('⚠️ Channel ini sudah dimasukkan ke folder output, tidak bisa dihapus dari sumber', 'warn');
+    return;
+  }
+  const ch = channels.find(c => c.idx === idx);
+  channels = channels.filter(c => c.idx !== idx);
+  selected.delete(idx);
+  buildGroupFilters();
+  renderLeft();
+  updateStats();
+  if (ch) toast(`🗑 "${ch.name}" dihapus dari sumber`, 'warn');
+}
+
+function deleteSelected() {
+  // Hapus semua yang dipilih (yang tidak ada di output)
+  const toDelete = [...selected].filter(i => !usedIdxSet.has(i));
+  const skipped  = selected.size - toDelete.length;
+  if (!toDelete.length) {
+    toast('⚠️ Semua channel yang dipilih sudah ada di output, tidak bisa dihapus', 'warn');
+    return;
+  }
+  const delSet = new Set(toDelete);
+  channels = channels.filter(c => !delSet.has(c.idx));
+  selected.clear();
+  buildGroupFilters();
+  renderLeft();
+  updateStats();
+  let msg = `🗑 ${toDelete.length} channel dihapus dari sumber`;
+  if (skipped) msg += ` (${skipped} dilewati karena sudah di output)`;
+  toast(msg, 'warn');
+  updateDelSelBtn();
+}
 
 // ── USED INDEX SET ────────────────────────────────────────────────
 function rebuildUsedSet() {
